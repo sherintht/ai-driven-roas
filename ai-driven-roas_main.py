@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import holidays
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -15,7 +14,7 @@ st.set_page_config(
 st.title("💡 ROAS Insights Dashboard")
 st.markdown(
     "Analyze your campaign performance, forecast returns, "
-    "and simulate budget changes—all without external ML libraries."
+    "and simulate budget changes—all without external libraries."
 )
 
 # Sidebar: Upload
@@ -24,7 +23,7 @@ with st.sidebar:
     uploaded_file = st.file_uploader(
         "Select your marketing CSV file",
         type=["csv"],
-        help="Required: date, campaign, channel, spend, installs, conversions, revenue, roas_day_1"
+        help="Required columns: date, campaign, channel, spend, installs, conversions, revenue, roas_day_1"
     )
     if uploaded_file:
         st.success("✅ File uploaded successfully!")
@@ -42,8 +41,6 @@ df.dropna(subset=["date","spend","installs","conversions","revenue","roas_day_1"
 df["CAC"] = df["spend"] / df["installs"].replace(0, np.nan)
 df["CAC"].fillna(0, inplace=True)
 df["Weekend"] = df["date"].dt.weekday >= 5
-us_hols = holidays.US()
-df["Holiday"] = df["date"].isin(us_hols)
 
 required = ["date","campaign","channel","spend","installs","conversions","revenue","roas_day_1"]
 missing = [c for c in required if c not in df.columns]
@@ -80,8 +77,7 @@ elif view == "Average ROAS":
     )
     st.plotly_chart(fig, use_container_width=True)
     st.markdown(
-        "This uses each campaign’s historical Day-1 ROAS as the “forecast.” "
-        "No external ML libraries are required."
+        "This uses each campaign’s historical Day-1 ROAS as the “forecast.”"
     )
 
 # 3. Time Forecast (7-day moving average)
@@ -116,7 +112,6 @@ else:
         df2 = df.copy()
         for ch,pct in adjustments.items():
             df2.loc[df2["channel"]==ch,"spend"] *= (1+pct)
-        # Recompute Avg ROAS per campaign weighted by new spend
         df2["roas_avg"] = df2.groupby("campaign")["roas_day_1"].transform("mean")
         orig = (df["roas_day_1"]*df["spend"]).sum()/df["spend"].sum()
         new = (df2["roas_avg"]*df2["spend"]).sum()/df2["spend"].sum()
