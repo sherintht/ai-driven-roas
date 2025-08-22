@@ -1,148 +1,24 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import xgboost as xgb
+from sklearn.ensemble import GradientBoostingRegressor
 import holidays
 import plotly.express as px
 import plotly.graph_objects as go
-from openai import OpenAI
-import json
 
 # Page configuration
 st.set_page_config(
-    page_title="AI-Powered ROAS Insights",
-    page_icon="🤖",
+    page_title="ROAS Insights Dashboard",
+    page_icon="💡",
     layout="wide"
 )
 
-# Initialize OpenAI client
-@st.cache_resource
-def init_openai_client():
-    try:
-        return OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-    except Exception as e:
-        st.error("⚠️ AI features unavailable. Please configure OpenAI API key.")
-        return None
-
-client = init_openai_client()
-
-# Professional AI Insights Generator
-class AIInsightsEngine:
-    def __init__(self, client, campaign_data):
-        self.client = client
-        self.data = campaign_data
-        self.context = self._build_context()
-    
-    def _build_context(self):
-        """Build rich context from campaign data"""
-        summary = {
-            "total_campaigns": self.data["campaign"].nunique(),
-            "total_channels": self.data["channel"].nunique(),
-            "avg_daily_spend": self.data["spend"].mean(),
-            "avg_roas": self.data["roas_day_1"].mean(),
-            "top_campaign": self.data.groupby("campaign")["roas_day_1"].mean().idxmax(),
-            "top_channel": self.data.groupby("channel")["roas_day_1"].mean().idxmax(),
-            "date_range": f"{self.data['date'].min()} to {self.data['date'].max()}",
-            "performance_trends": self._get_trends()
-        }
-        return summary
-    
-    def _get_trends(self):
-        """Analyze performance trends"""
-        daily_perf = self.data.groupby("date").agg({
-            "spend": "sum",
-            "revenue": "sum",
-            "roas_day_1": "mean"
-        }).reset_index()
-        
-        recent_roas = daily_perf.tail(7)["roas_day_1"].mean()
-        older_roas = daily_perf.head(7)["roas_day_1"].mean()
-        trend = "improving" if recent_roas > older_roas else "declining"
-        
-        return {
-            "trend_direction": trend,
-            "recent_avg_roas": recent_roas,
-            "change_percentage": ((recent_roas - older_roas) / older_roas) * 100
-        }
-    
-    def generate_insight(self, user_question, max_tokens=300):
-        """Generate AI-powered insights with error handling"""
-        if not self.client:
-            return "❌ AI features are currently unavailable."
-        
-        if not user_question.strip():
-            return "💡 Please ask a specific question about your campaigns."
-        
-        try:
-            # Professional system prompt
-            system_prompt = f"""You are a senior marketing data analyst and ROAS optimization expert. 
-            
-            Campaign Context:
-            - {self.context['total_campaigns']} campaigns across {self.context['total_channels']} channels
-            - Average daily spend: ${self.context['avg_daily_spend']:,.0f}
-            - Average ROAS: {self.context['avg_roas']:.2f}×
-            - Top performing campaign: {self.context['top_campaign']}
-            - Top performing channel: {self.context['top_channel']}
-            - Performance trend: {self.context['performance_trends']['trend_direction']}
-            - Recent ROAS change: {self.context['performance_trends']['change_percentage']:+.1f}%
-            
-            Provide concise, actionable insights in professional language. Include specific numbers and recommendations when relevant."""
-            
-            # Rate limiting check
-            if 'last_request_time' not in st.session_state:
-                st.session_state.last_request_time = 0
-            
-            import time
-            if time.time() - st.session_state.last_request_time < 2:
-                return "⏳ Please wait a moment between requests."
-            
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",  # Cost-effective choice
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_question}
-                ],
-                max_tokens=max_tokens,
-                temperature=0.3  # Lower for more consistent business advice
-            )
-            
-            st.session_state.last_request_time = time.time()
-            return response.choices[0].message.content
-            
-        except Exception as e:
-            return f"❌ Unable to generate insight: {str(e)[:100]}..."
-    
-    def get_automated_recommendations(self):
-        """Generate automatic strategic recommendations"""
-        recommendations = []
-        
-        # Channel performance analysis
-        channel_roas = self.data.groupby("channel")["roas_day_1"].mean()
-        best_channel = channel_roas.idxmax()
-        worst_channel = channel_roas.idxmin()
-        
-        recommendations.append({
-            "title": "Channel Optimization",
-            "insight": f"Consider shifting budget from {worst_channel} (ROAS: {channel_roas[worst_channel]:.2f}×) to {best_channel} (ROAS: {channel_roas[best_channel]:.2f}×)",
-            "impact": "Potential 15-25% ROAS improvement"
-        })
-        
-        # Weekend performance
-        weekend_roas = self.data[self.data["Weekend"]]["roas_day_1"].mean()
-        weekday_roas = self.data[~self.data["Weekend"]]["roas_day_1"].mean()
-        
-        if weekend_roas > weekday_roas:
-            recommendations.append({
-                "title": "Weekend Opportunity",
-                "insight": f"Weekend ROAS ({weekend_roas:.2f}×) outperforms weekdays ({weekday_roas:.2f}×)",
-                "impact": "Scale weekend campaigns for higher returns"
-            })
-        
-        return recommendations
-
 # Title and description
-st.title("🤖 AI-Powered ROAS Insights Dashboard")
-st.markdown("Upload your campaign data to get AI-driven insights, forecasts, and optimization recommendations.")
+st.title("💡 ROAS Insights Dashboard")
+st.markdown(
+    "Upload your campaign data to see expected returns, "
+    "discover top-performing campaigns, and test budget changes—all in plain English."
+)
 
 # Sidebar: Upload
 with st.sidebar:
@@ -150,7 +26,7 @@ with st.sidebar:
     uploaded_file = st.file_uploader(
         "Select your marketing CSV file",
         type=["csv"],
-        help="Required: date,campaign,channel,spend,installs,conversions,revenue,roas_day_1"
+        help="Required: date, campaign, channel, spend, installs, conversions, revenue, roas_day_1"
     )
     if uploaded_file:
         st.success("✅ File uploaded successfully!")
@@ -159,14 +35,14 @@ if not uploaded_file:
     st.info("📂 Please upload your campaign CSV to begin.")
     st.stop()
 
-# Load and prepare data (same as before)
+# Load and prepare data
 df = pd.read_csv(uploaded_file)
 
 @st.cache_data
 def prepare(df):
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df.dropna(subset=["date","spend","installs","conversions","revenue","roas_day_1"], inplace=True)
+    df.dropna(subset=["date", "spend", "installs", "conversions", "revenue", "roas_day_1"], inplace=True)
     df["CAC"] = df["spend"] / df["installs"].replace(0, np.nan)
     df["CAC"].fillna(0, inplace=True)
     df["Weekend"] = df["date"].dt.weekday >= 5
@@ -181,70 +57,126 @@ def prepare(df):
 
 df = prepare(df)
 
-# Initialize AI Engine
-ai_engine = AIInsightsEngine(client, df) if client else None
+required = ["date", "campaign", "channel", "spend", "installs", "conversions", "revenue", "roas_day_1"]
+missing = [c for c in required if c not in df.columns]
+if missing:
+    st.error(f"Missing columns: {missing}")
+    st.stop()
 
 # Sidebar: Choose view
 with st.sidebar:
     st.header("2. View Options")
     view = st.selectbox(
         "Select view:",
-        ["AI Insights", "Overview", "Predict ROAS", "Time Forecast", "Budget Simulator"]
+        ["Overview", "Predict ROAS", "Time Forecast", "Budget Simulator"]
     )
 
-# AI Insights View
-if view == "AI Insights":
-    st.subheader("🤖 AI Marketing Consultant")
-    
-    if not ai_engine:
-        st.error("⚠️ AI features require OpenAI API configuration.")
-        st.stop()
-    
-    # Automated recommendations
-    st.markdown("### 🎯 Automated Recommendations")
-    recommendations = ai_engine.get_automated_recommendations()
-    
-    for i, rec in enumerate(recommendations):
-        with st.expander(f"💡 {rec['title']}", expanded=i==0):
-            st.write(f"**Insight:** {rec['insight']}")
-            st.write(f"**Potential Impact:** {rec['impact']}")
-    
-    # Interactive Q&A
-    st.markdown("### 💬 Ask the AI Consultant")
-    
-    # Suggested questions
-    suggested_questions = [
-        "What's my best performing campaign and why?",
-        "Which channel should I invest more budget in?",
-        "How can I improve my overall ROAS?",
-        "What trends do you see in my campaign performance?"
+# Cache model training
+@st.cache_resource
+def train_model(data):
+    feature_cols = [
+        "spend", "installs", "conversions", "CAC",
+        "Weekend", "Holiday", "CampCode", "ChanCode",
+        "Spend/Install", "ConvRate", "Rev/Conv"
     ]
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        user_question = st.text_input(
-            "Ask any question about your campaigns:",
-            placeholder="e.g., Which campaigns should I scale up?"
-        )
-    
-    with col2:
-        st.markdown("**Quick Questions:**")
-        for q in suggested_questions:
-            if st.button(q, key=f"suggest_{hash(q)}"):
-                user_question = q
-    
-    if st.button("🔍 Get AI Insight", type="primary"):
-        if user_question.strip():
-            with st.spinner("AI is analyzing your data..."):
-                insight = ai_engine.generate_insight(user_question)
-                st.markdown("### 🤖 AI Response")
-                st.markdown(insight)
-        else:
-            st.warning("Please enter a question first.")
+    X = data[feature_cols]
+    y = data["roas_day_1"]
+    model = GradientBoostingRegressor(n_estimators=100, random_state=42)
+    model.fit(X, y)
+    return model, feature_cols
 
-# Rest of your existing views (Overview, Predict ROAS, etc.) remain the same
-# ... (include all previous view code here)
+model, features = train_model(df)
+
+# 1. Overview
+if view == "Overview":
+    st.subheader("📊 Data Overview")
+    st.metric("Days of Data", f"{len(df)}")
+    st.metric("Unique Campaigns", df["campaign"].nunique())
+    st.metric("Unique Channels", df["channel"].nunique())
+    span = df["date"].max() - df["date"].min()
+    st.metric("Date Range", f"{span.days} days")
+
+    st.markdown("**Sample Records**")
+    st.dataframe(df[required].head(8), use_container_width=True)
+
+    st.markdown("**Key Averages**")
+    st.write(f"- Average Daily Spend: ${df['spend'].mean():,.0f}")
+    st.write(f"- Average Daily Conversions: {df['conversions'].mean():,.0f}")
+    st.write(f"- Average Day-1 ROAS: {df['roas_day_1'].mean():.2f}×")
+
+# 2. Predict ROAS
+elif view == "Predict ROAS":
+    st.subheader("📈 Day-1 ROAS Forecast")
+    df["ROAS_Forecast"] = model.predict(df[features])
+
+    # Compute accuracy metrics manually
+    y_true = df["roas_day_1"]
+    y_pred = df["ROAS_Forecast"]
+    mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+    rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
+    st.markdown(f"**Forecast Accuracy:** Within {mape:.1f}% on average; RMSE = {rmse:.2f}")
+
+    st.markdown("**Top 5 Campaigns by Forecasted Day-1 ROAS**")
+    top = df.groupby("campaign")["ROAS_Forecast"].mean().nlargest(5)
+    fig = px.bar(
+        x=top.values, y=top.index, orientation="h",
+        labels={"x": "Forecasted ROAS (×)", "y": "Campaign"}
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+# 3. Time Forecast
+elif view == "Time Forecast":
+    st.subheader("🔮 30-Day Revenue Forecast (Moving Average)")
+    camp = st.selectbox("Select Campaign", df["campaign"].unique())
+    chan = st.selectbox("Select Channel", df["channel"].unique())
+    
+    subset = df[(df["campaign"] == camp) & (df["channel"] == chan)][["date", "revenue"]].sort_values("date")
+    if subset.empty:
+        st.warning("No data for that combination.")
+    else:
+        subset = subset.set_index("date").resample("D").sum().fillna(0)
+        subset["7d_MA"] = subset["revenue"].rolling(7, min_periods=1).mean()
+        
+        last_date = subset.index.max()
+        future_dates = pd.date_range(last_date + pd.Timedelta(days=1), periods=30)
+        forecast = pd.DataFrame(index=future_dates)
+        forecast["revenue"] = np.nan
+        forecast["MA_Forecast"] = subset["7d_MA"].iloc[-7:].mean()  # constant forecast
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=subset.index, y=subset["revenue"],
+                                 mode="lines", name="Historical Revenue"))
+        fig.add_trace(go.Scatter(x=forecast.index, y=forecast["MA_Forecast"],
+                                 mode="lines", name="Forecasted Revenue"))
+        fig.update_layout(xaxis_title="Date", yaxis_title="Revenue ($)")
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.markdown(f"**Projected 30-day Revenue:** ${forecast['MA_Forecast'].sum():,.0f}")
+
+# 4. Budget Simulator
+else:
+    st.subheader("💰 Budget Reallocation Simulator")
+    st.markdown("Adjust each channel’s spend to see potential ROAS change.")
+    channels = df["channel"].unique()
+    adjustments = {}
+    cols = st.columns(2)
+    for i, ch in enumerate(channels):
+        adjustments[ch] = cols[i % 2].slider(f"{ch} ±%", -50, 50, 0) / 100
+
+    if st.button("Run Simulation"):
+        df2 = df.copy()
+        for ch, pct in adjustments.items():
+            df2.loc[df2["channel"] == ch, "spend"] *= (1 + pct)
+        df2 = prepare(df2)
+        df2["ROAS_Forecast"] = model.predict(df2[features])
+
+        orig = (df["roas_day_1"] * df["spend"]).sum() / df["spend"].sum()
+        new = (df2["ROAS_Forecast"] * df2["spend"]).sum() / df2["spend"].sum()
+        uplift = (new - orig) / orig * 100
+
+        st.metric("Original Portfolio ROAS", f"{orig:.2f}×")
+        st.metric("New Portfolio ROAS", f"{new:.2f}×", delta=f"{new - orig:.2f}×")
+        st.write(f"**Total ROAS Change:** {uplift:+.1f}%")
 
 st.markdown("---")
-st.caption("© Your Company — AI-Powered ROAS Insights | Powered by OpenAI GPT")
+st.caption("© Your Company — Professional ROAS Insights")
